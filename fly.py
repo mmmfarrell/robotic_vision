@@ -63,10 +63,6 @@ class VimFly:
             if keys[pygame.K_ESCAPE]:
                 quit = True
 
-            # Enter autonomous mode (flag)
-            if keys[pygame.K_y]:
-                auto = True
-
             # Press r to reset the environment.
             if keys[pygame.K_r]:
                 reset = True
@@ -99,7 +95,7 @@ class VimFly:
                 r = 0
 
             # Altitude commands, lower = a, higher = s
-            if keys[pygame.K_a] or keys[pygame.K_s]:
+            if keys[pygame.K_a] or keys[pygame.K_s] or keys[pygame.K_y]:
                 if not self.alt_debouncing:
                     self.alt_debouncing = True
                     self.alt_start_time = time.time()
@@ -114,6 +110,11 @@ class VimFly:
 
                     elif keys[pygame.K_s]:
                         self.altitude += self.params['altitude_step']
+
+                    # Enter autonomous mode (flag)
+                    if keys[pygame.K_y]:
+                        auto = True
+
             else:
                 self.alt_debouncing = False
 
