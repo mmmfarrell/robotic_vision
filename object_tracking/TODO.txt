@@ -1,0 +1,7 @@
+- implement Background Subtract
+- Finish KLT Track
+- write each as a class
+
+- write Kalman filter class
+
+- write file to do all of it

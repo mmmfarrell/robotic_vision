@@ -102,3 +102,9 @@ ENV/
 
 # swp files from vim
 *.swp
+
+# media files
+*.avi
+*.ogv
+*.mp4
+*.png
