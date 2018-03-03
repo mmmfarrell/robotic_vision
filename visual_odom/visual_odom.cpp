@@ -24,8 +24,6 @@ VisualOdom::VisualOdom()
   pp_.y = 185.2157;
 
   // Init starting pose of camera
-  //R_ = Eigen::Matrix<double, 3, 3>::Identity();
-  //t_.setZero();
   R_ = Mat::eye(3, 3, CV_64F);
   t_ = Mat::zeros(3, 1, CV_64F);
 }
@@ -33,178 +31,104 @@ VisualOdom::VisualOdom()
 VisualOdom::~VisualOdom()
 {}
 
-Mat VisualOdom::calcOdom(Mat img1, Mat img2)
+Mat VisualOdom::calcOdom(Mat img1, Mat img2, double scale)
 {
-  // Calc ORB points for both frames
-  vector<KeyPoint> kp1, kp2;
-  Mat desc1, desc2;
-
-  orb_->detectAndCompute(img1, noArray(), kp1, desc1);
-  orb_->detectAndCompute(img2, noArray(), kp2, desc2);
-
-  vector< vector<DMatch> > matches;
-  // Match ORB features
-  matcher_->knnMatch(desc1, desc2, matches, 2);
-
-  // Put matched features into vectors
-  vector<KeyPoint> matched1, matched2;
-
-  for(unsigned i = 0; i < matches.size(); i++)
-  {
-    if (matches[i][0].distance < nn_match_ratio_ * matches[i][1].distance)
-    {
-      matched1.push_back(kp1[matches[i][0].queryIdx]);
-      matched2.push_back(kp2[matches[i][0].trainIdx]);
-    }
-  }
+  // Detect features in img1
+  vector<Point2f> features1, features2;
+  VisualOdom::detectFeatures(img1, features1);
+  VisualOdom::trackFeatures(img1, img2, features1, features2);
 
   Mat inlier_mask, E, R, t;
   vector<KeyPoint> inliers1, inliers2;
-  vector<DMatch> inlier_matches;
 
   // TODO: Remove
   Mat res;
 
   // If we have enough matches, recover pose
-  if (matched1.size() >= 4)
+  if (features2.size() > 100) //(matched1.size() >= 4)
   {
-    // TODO: this way of converting from keypoints to Point2f sucks
-    vector<Point2f> mpoints1, mpoints2;
-    kp1[1].convert(matched1, mpoints1);
-    kp2[1].convert(matched2, mpoints2);
-    //cout << "Mpoints length: " << mpoints2.size() << endl;
+    E = findEssentialMat(features1, features2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
+    recoverPose(E, features1, features2, R, t, focal_, pp_, inlier_mask);
 
-    // Compute essential matrix then recover pose
-    //homography = findHomography(mpoints1, mpoints2, RANSAC, ransac_thresh_, inlier_mask);
-    E = findEssentialMat(mpoints1, mpoints2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
-    recoverPose(E, mpoints1, mpoints2, R, t, focal_, pp_, inlier_mask);
-
-    //cout << "R: " << R << endl << "t: " << t << endl;
-    //cout << "R: " << R_ << endl << "t: " << t_ << endl;
-    //cout << "R_ type " << R_.type() << endl << "R type " << R.type() << endl;
-    //cout << "R*R: " << R * R_ << endl;
-    //cout << "R_ * t: " << R_ * t << endl;
-
-    // Move our pose
-    double scale = 1.0;
+    // Move my overall pose
     t_ += scale*(R_*t);
     R_ = R*R_;
+    //t_ = t;
+    //R_ = R;
   }
 
-  // If we don't get a good pose then just return the frames
-  if (matched1.size() < 4 || E.empty() )
-  {
-    hconcat(img1, img2, res);
-    cout << "No update" << endl;
-  }
-  else
-  {
-    // Draw matches on frames
-    for (unsigned i = 0; i < matched1.size(); i++)
-    {
-      if (inlier_mask.at<uchar>(i))
-      {
-        int new_i = static_cast<int>(inliers1.size());
-        inliers1.push_back(matched1[i]);
-        inliers2.push_back(matched2[i]);
-        inlier_matches.push_back(DMatch(new_i, new_i, 0));
-      }
-    }
-    drawMatches(img1, inliers1, img2, inliers2, inlier_matches, res, Scalar(255,0,0), Scalar(255,0,0));
+  //// If we don't get a good pose then just return the frames
+  //if (matched1.size() < 4 || E.empty() )
+  //{
+    //hconcat(img1, img2, res);
+    //cout << "No update" << endl;
+  //}
+  //else
+  //{
+    //// Draw matches on frames
+    //for (unsigned i = 0; i < matched1.size(); i++)
+    //{
+      //if (inlier_mask.at<uchar>(i))
+      //{
+        //int new_i = static_cast<int>(inliers1.size());
+        //inliers1.push_back(matched1[i]);
+        //inliers2.push_back(matched2[i]);
+        //inlier_matches.push_back(DMatch(new_i, new_i, 0));
+      //}
+    //}
+    //drawMatches(img1, inliers1, img2, inliers2, inlier_matches, res, Scalar(255,0,0), Scalar(255,0,0));
     //cout << "inlier_matches length: " << inlier_matches.size() << endl;
-    //cout << "Draw MAtches" << endl;
-  }
+    ////cout << "Draw MAtches" << endl;
+  //}
 
   return res;
 
 }
 
-} // end namespace
-
-// From Learn OpenCV
-// Checks if a matrix is a valid rotation matrix.
-bool isRotationMatrix(Mat &R)
+void VisualOdom::detectFeatures(Mat img, vector<Point2f>& points)
 {
-    Mat Rt;
-    transpose(R, Rt);
-    Mat shouldBeIdentity = Rt * R;
-    Mat I = Mat::eye(3,3, shouldBeIdentity.type());
-     
-    return  norm(I, shouldBeIdentity) < 1e-6;
-     
+  int max_corners_ = 500;
+  double quality_level = 0.01;
+  double min_distance = 10;
+  goodFeaturesToTrack(img, points, max_corners_, quality_level, min_distance );
 }
- 
-// Calculates rotation matrix to euler angles
-// The result is the same as MATLAB except the order
-// of the euler angles ( x and z are swapped ).
-Vec3f rotationMatrixToEulerAngles(Mat &R)
+
+void VisualOdom::trackFeatures(Mat img1, Mat img2, vector<Point2f>& points1, vector<Point2f>& points2)
 {
- 
-    assert(isRotationMatrix(R));
-     
-    float sy = sqrt(R.at<double>(0,0) * R.at<double>(0,0) +  R.at<double>(1,0) * R.at<double>(1,0) );
- 
-    bool singular = sy < 1e-6; // If
- 
-    float x, y, z;
-    if (!singular)
+  // Calculate optical flow of points1
+  vector<uchar> status;
+  vector<float> err;
+  calcOpticalFlowPyrLK(img1, img2, points1, points2, status, err);
+
+  // Get rid of failed points or outside of frame
+  int idx = 0;
+  double pix_vel, pix_vel_thresh = 4.0;
+  for (int i = 0; i < status.size(); i++)
+  {
+    Point2f pt;
+    pt = points2.at(i - idx);
+    if ((status.at(i) == 0) || (pt.x<0) || (pt.y<0))
     {
-        x = atan2(R.at<double>(2,1) , R.at<double>(2,2));
-        y = atan2(-R.at<double>(2,0), sy);
-        z = atan2(R.at<double>(1,0), R.at<double>(0,0));
+      points1.erase(points1.begin() + (i - idx));
+      points2.erase(points2.begin() + (i - idx));
+      idx++;
     }
     else
     {
-        x = atan2(-R.at<double>(1,2), R.at<double>(1,1));
-        y = atan2(-R.at<double>(2,0), sy);
-        z = 0;
-    }
-    return Vec3f(x, y, z);
-     
-     
-     
-}
-
-Mat plotTruth()
-{
-  Mat traj = Mat::zeros(600, 600, CV_8UC3);
-
-  ifstream myfile("/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/poses/00.txt");
-
-  double x, y, z, var;
-  //String line;
-  char line[256];
-
-  if (myfile.is_open())
-  {
-    while (!myfile.eof())
-    {
-      myfile.getline(line, 256);
-      std::istringstream in(line);
-
-      for (int i = 0; i < 12; i++)
+      pix_vel = sqrt(pow(points2[i-idx].x - points1[i-idx].x, 2) + pow(points2[i-idx].y - points1[i-idx].y, 2));
+      
+      // Get rid of points if OF isn't greater than threshold
+      if (pix_vel < pix_vel_thresh)
       {
-        in >> var;
-        if (i == 3)
-          x = var;
-        if (i == 7)
-          y = var;
-        if (i == 11)
-          z = var;
-        //cout << "x: " << x << endl;
+        points1.erase(points1.begin() + (i - idx));
+        points2.erase(points2.begin() + (i - idx));
+        idx++;
       }
-      circle(traj, Point(x + 300, z + 100), 1, Scalar(0, 0, 255), 2);
-      imshow("Truth", traj);
-      char c(0);
-      c = (char)waitKey(1);
-      if ( c == 27 )
-        break;
     }
   }
-  //cout << "end" << endl;
-  myfile.close();
-  return traj;
 }
+
+} // end namespace
 
 int main(int argc, char** argv)
 {
@@ -221,13 +145,63 @@ int main(int argc, char** argv)
 
   // Mat for trajectory
   Mat traj = Mat::zeros(600, 600, CV_8UC3);
-  traj = plotTruth();
+
+  // Read file for true position
+  ifstream myfile("/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/poses/00.txt");
+
+  // Truth parameters
+  double x_truth, y_truth, z_truth, var;
+  double scale, x_prev(0), y_prev(0), z_prev(0);
+  Mat R_truth = Mat::eye(3, 3, CV_64F);
+  Mat t_truth = Mat::zeros(3, 1, CV_64F);
+
+  char line[256];
+
+  // Total rotation and translation
+  Mat R_tot = Mat::eye(3, 3, CV_64F);
+  Mat t_tot = Mat::zeros(3, 1, CV_64F);
 
   for (int i = 0; i < num_frames; i++)
   {
     clock_t t;
     t = clock();
 
+    // Get truth info for this frame
+    myfile.getline(line, 256);
+    std::istringstream in(line);
+
+    for (int i = 0; i < 12; i++)
+    {
+      in >> var;
+      if (i < 3)
+        R_truth.at<double>(0, i) = var;
+      else if (i == 3)
+        x_truth = var;
+      else if (i < 7)
+        R_truth.at<double>(1, i-4) = var;
+      else if (i == 7)
+        y_truth = var;
+      else if (i < 11)
+        R_truth.at<double>(2, i-8) = var;
+      else if (i == 11)
+        z_truth = var;
+    }
+
+    // Calc t_truth
+    t_truth.at<double>(0) = x_truth - x_prev;
+    t_truth.at<double>(1) = y_truth - y_prev;
+    t_truth.at<double>(2) = z_truth - z_prev;
+
+    // Calculate scale of movement
+    scale = sqrt(pow(x_truth - x_prev, 2) + pow(y_truth - y_prev, 2) + pow(z_truth - z_prev, 2));
+    x_prev = x_truth;
+    y_prev = y_truth;
+    z_prev = z_truth;
+
+    // Plot truth point as red
+    circle(traj, Point(x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
+
+    // Get next 2 images
     sprintf(filename1, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i);
     sprintf(filename2, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i+1);
 
@@ -235,24 +209,26 @@ int main(int argc, char** argv)
     img2 = imread(filename2, CV_LOAD_IMAGE_GRAYSCALE);
 
     // Get VO
-    res = vo.calcOdom(img1, img2);
+    res = vo.calcOdom(img1, img2, scale);
 
-    // Get current euler angles
-    Vec3f euler;
-    euler = rotationMatrixToEulerAngles(vo.R_);
-    //cout << "Euler angles: " << euler << endl;
-    //cout << "Translation: " << vo.t_ << endl;
+    // Update total rotation and translation with true scale factor
+    // TODO return bool to determine if the vo was good (to update R or not)
+    //t_tot += scale*(R_tot*vo.t_);
+    //R_tot = vo.R_*R_tot;
+    t_tot = vo.t_;
+    R_tot = vo.R_;
 
     // Plot trajectory
-    int x_traj = int(vo.t_.at<double>(0)) + 100;
-    int y_traj = int(vo.t_.at<double>(2)) + 400;
+    int x_traj = int(t_tot.at<double>(0)) + 300;
+    int y_traj = -int(t_tot.at<double>(2)) + 100;
     circle(traj, Point(x_traj, y_traj), 1, Scalar(255, 0, 0), 2);
 
     // Determine runtime
     t = clock() - t;
-    std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
+    //std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
 
-    imshow("Matches", res);
+    //imshow("Matches", res);
+    imshow("Camera", img2);
     imshow("Trajectory", traj);
     char c(0);
     c = (char)waitKey(2);

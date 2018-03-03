@@ -1,7 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include <stdio.h>
 #include <string>
-#include <eigen3/Eigen/Core>
 #include <ctime>
 
 using namespace cv;
@@ -16,11 +15,9 @@ class VisualOdom
     VisualOdom();
     ~VisualOdom();
 
-    Mat calcOdom(Mat, Mat);
+    Mat calcOdom(Mat, Mat, double);
 
     // Rotation and translation results
-    //Eigen::Matrix<double, 3, 3> R_;
-    //Eigen::Matrix<double, 3, 1> t_;
     Mat R_;
     Mat t_;
 
@@ -32,6 +29,9 @@ class VisualOdom
     // ORB Stuff
     Ptr<ORB> orb_;
     Ptr<DescriptorMatcher> matcher_;
+
+    void detectFeatures(Mat, vector<Point2f>&);
+    void trackFeatures(Mat, Mat, vector<Point2f>&, vector<Point2f>&);
 
     // Camera intrinsics
     double focal_;
