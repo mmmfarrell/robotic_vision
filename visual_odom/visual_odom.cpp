@@ -31,58 +31,42 @@ VisualOdom::VisualOdom()
 VisualOdom::~VisualOdom()
 {}
 
-Mat VisualOdom::calcOdom(Mat img1, Mat img2, double scale)
+void VisualOdom::calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out)
 {
   // Detect features in img1
   vector<Point2f> features1, features2;
   VisualOdom::detectFeatures(img1, features1);
   VisualOdom::trackFeatures(img1, img2, features1, features2);
 
-  Mat inlier_mask, E, R, t;
-  vector<KeyPoint> inliers1, inliers2;
-
-  // TODO: Remove
-  Mat res;
+  Mat inlier_mask, E;
 
   // If we have enough matches, recover pose
   if (features2.size() > 100) //(matched1.size() >= 4)
   {
-    E = findEssentialMat(features1, features2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
+    E = findEssentialMat(features1, features2, focal_, pp_, RANSAC, 0.999, 0.5, inlier_mask);
     recoverPose(E, features1, features2, R, t, focal_, pp_, inlier_mask);
-
-    // Move my overall pose
-    t_ += scale*(R_*t);
-    R_ = R*R_;
-    //t_ = t;
-    //R_ = R;
   }
 
-  //// If we don't get a good pose then just return the frames
-  //if (matched1.size() < 4 || E.empty() )
-  //{
-    //hconcat(img1, img2, res);
-    //cout << "No update" << endl;
-  //}
-  //else
-  //{
-    //// Draw matches on frames
-    //for (unsigned i = 0; i < matched1.size(); i++)
-    //{
-      //if (inlier_mask.at<uchar>(i))
-      //{
-        //int new_i = static_cast<int>(inliers1.size());
-        //inliers1.push_back(matched1[i]);
-        //inliers2.push_back(matched2[i]);
-        //inlier_matches.push_back(DMatch(new_i, new_i, 0));
-      //}
-    //}
-    //drawMatches(img1, inliers1, img2, inliers2, inlier_matches, res, Scalar(255,0,0), Scalar(255,0,0));
-    //cout << "inlier_matches length: " << inlier_matches.size() << endl;
-    ////cout << "Draw MAtches" << endl;
-  //}
+  // Plot points on imgs
+  cvtColor(img2, out, COLOR_GRAY2BGR);
 
-  return res;
+  // If we don't get a good pose then just return the frames
+  if (!E.empty() )
+  {
+    // Draw matches on frames
+    vector<Point2f> inliers1, inliers2;
 
+    for (unsigned i = 0; i < features2.size(); i++)
+    {
+      if (inlier_mask.at<uchar>(i))
+      {
+        // Draw circles and line to connect points from one frame to another
+        circle(out, features1[i], 2, Scalar(0, 255, 0), 3);
+        circle(out, features2[i], 2, Scalar(0, 0, 255), 3);
+        line(out, features1[i], features2[i], Scalar(0, 255, 0));
+      }
+    }
+  }
 }
 
 void VisualOdom::detectFeatures(Mat img, vector<Point2f>& points)
@@ -140,7 +124,7 @@ int main(int argc, char** argv)
   robotic_vision::VisualOdom vo;
 
   // Load images
-  Mat img1, img2, res;
+  Mat img1, img2, img_out;
   char filename1[200], filename2[200];
 
   // Mat for trajectory
@@ -160,6 +144,7 @@ int main(int argc, char** argv)
   // Total rotation and translation
   Mat R_tot = Mat::eye(3, 3, CV_64F);
   Mat t_tot = Mat::zeros(3, 1, CV_64F);
+  Mat R_step, t_step;
 
   for (int i = 0; i < num_frames; i++)
   {
@@ -199,7 +184,7 @@ int main(int argc, char** argv)
     z_prev = z_truth;
 
     // Plot truth point as red
-    circle(traj, Point(x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
+    circle(traj, Point(-x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
 
     // Get next 2 images
     sprintf(filename1, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i);
@@ -209,17 +194,23 @@ int main(int argc, char** argv)
     img2 = imread(filename2, CV_LOAD_IMAGE_GRAYSCALE);
 
     // Get VO
-    res = vo.calcOdom(img1, img2, scale);
+    vo.calcOdom(img1, img2, R_step, t_step, img_out);
 
-    // Update total rotation and translation with true scale factor
-    // TODO return bool to determine if the vo was good (to update R or not)
-    //t_tot += scale*(R_tot*vo.t_);
-    //R_tot = vo.R_*R_tot;
-    t_tot = vo.t_;
-    R_tot = vo.R_;
+    // Only update if we have moved and if our resultant rotation and translation are valid
+    // Note translation valid if principle motion is in the z direction (along camera axis)
+    if ((scale > 0.1) && (!R_step.empty()) && (t_step.at<double>(2) < t_step.at<double>(0)) && (t_step.at<double>(2) < t_step.at<double>(1)))
+    {
+      // Move our estimate
+      t_tot += scale*(R_tot*t_step);
+      R_tot = R_step * R_tot;
+    }
+    else
+    {
+      cout << "Skipped Update!!!" << endl;
+    }
 
     // Plot trajectory
-    int x_traj = int(t_tot.at<double>(0)) + 300;
+    int x_traj = -int(t_tot.at<double>(0)) + 300;
     int y_traj = -int(t_tot.at<double>(2)) + 100;
     circle(traj, Point(x_traj, y_traj), 1, Scalar(255, 0, 0), 2);
 
@@ -228,7 +219,7 @@ int main(int argc, char** argv)
     //std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
 
     //imshow("Matches", res);
-    imshow("Camera", img2);
+    imshow("Camera", img_out);
     imshow("Trajectory", traj);
     char c(0);
     c = (char)waitKey(2);

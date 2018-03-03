@@ -15,7 +15,7 @@ class VisualOdom
     VisualOdom();
     ~VisualOdom();
 
-    Mat calcOdom(Mat, Mat, double);
+    void calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out);
 
     // Rotation and translation results
     Mat R_;
