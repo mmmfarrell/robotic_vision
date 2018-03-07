@@ -17,6 +17,7 @@ class VisualOdom
 
     void calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out);
     double calcRelativeScale(Mat img1, Mat img2, Mat img3);
+    void stereoPoints(Mat img1, Mat img2, Mat img3, Mat img4);
 
     // Rotation and translation results
     Mat R_;

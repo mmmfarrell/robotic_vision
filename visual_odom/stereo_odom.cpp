@@ -1,4 +1,4 @@
-#include "visual_odom.h"
+#include "stereo_odom.h"
 
 using namespace cv;
 using namespace std;
@@ -39,6 +39,170 @@ VisualOdom::VisualOdom()
 VisualOdom::~VisualOdom()
 {}
 
+void VisualOdom::stereoPoints(Mat img1, Mat img2, Mat img3, Mat img4)
+{
+  // Make new mats
+  Mat img1_points, img2_points;
+  img1.copyTo(img1_points);
+  img2.copyTo(img2_points);
+
+  // Calc ORB points for both frames
+  vector<KeyPoint> kp1, kp2, kp3, kp4;
+  Mat desc1, desc2, desc3, desc4;
+  orb_->detectAndCompute(img1, noArray(), kp1, desc1);
+  orb_->detectAndCompute(img2, noArray(), kp2, desc2);
+  orb_->detectAndCompute(img3, noArray(), kp3, desc3);
+  orb_->detectAndCompute(img4, noArray(), kp4, desc4);
+
+  // Match ORB features
+  vector<vector<DMatch>> matches, matches2;
+  matcher_->knnMatch(desc1, desc2, matches, 2);
+  matcher_->knnMatch(desc3, desc4, matches2, 2);
+
+  // desc
+  cout << "desc " << desc1.rows << " x " << desc1.cols << endl;
+  cout << "desc " << desc2.rows << " x " << desc2.cols << endl;
+
+  // Put matched features into vectors
+  vector<KeyPoint> matched1, matched2, matched3, matched4;
+
+  for(unsigned i = 0; i < matches.size(); i++)
+  {
+    if (matches[i][0].distance < nn_match_ratio_ * matches[i][1].distance)
+    {
+      matched1.push_back(kp1[matches[i][0].queryIdx]);
+      matched2.push_back(kp2[matches[i][0].trainIdx]);
+    }
+  }
+
+  for(unsigned i = 0; i < matches2.size(); i++)
+  {
+    if (matches2[i][0].distance < nn_match_ratio_ * matches2[i][1].distance)
+    {
+      matched3.push_back(kp1[matches2[i][0].queryIdx]);
+      matched4.push_back(kp2[matches2[i][0].trainIdx]);
+    }
+  }
+
+  // Disp # of points left
+  cout << "matched 1: " << matched1.size() << " matched 2: " << matched2.size() << endl;
+  cout << "matched 3: " << matched3.size() << " matched 4: " << matched4.size() << endl;
+
+  // Match first and second set of images
+  orb_->compute(img1, matched1, desc1);
+  orb_->compute(img3, matched3, desc3);
+
+  // Find matches between sets
+  vector<vector<DMatch>> tot_matches;
+  matcher_->knnMatch(desc1, desc3, tot_matches, 2);
+
+  // Put matched features into vectors
+  vector<KeyPoint> sm1, sm2, sm3, sm4;
+
+  for(unsigned i = 0; i < tot_matches.size(); i++)
+  {
+    if (tot_matches[i][0].distance < nn_match_ratio_ * tot_matches[i][1].distance)
+    {
+      sm1.push_back(matched1[matches[i][0].queryIdx]);
+      sm2.push_back(matched3[matches[i][0].trainIdx]);
+      sm3.push_back(matched2[matches[i][0].queryIdx]);
+      sm4.push_back(matched4[matches[i][0].trainIdx]);
+    }
+  }
+
+  // Disp # of points left
+  cout << "SM lengths: " << endl << sm1.size() << endl << sm2.size() << endl << sm3.size() << endl << sm4.size() << endl;
+
+  vector<Point2f> smp1, smp2;
+  KeyPoint::convert(sm1, smp1);
+  KeyPoint::convert(sm2, smp2);
+
+  Mat inlier_mask, E, R, t;
+  vector<KeyPoint> inliers1, inliers2, inliers3, inliers4;
+  vector<DMatch> inlier_matches;
+
+  // Recover Pose
+  E = findEssentialMat(mpoints1, mpoints2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
+  recoverPose(E, mpoints1, mpoints2, R, t, focal_, pp_, inlier_mask);
+
+  // Draw matches on frames
+  for (unsigned i = 0; i < matched1.size(); i++)
+  {
+    if (inlier_mask.at<uchar>(i))
+    {
+      int new_i = static_cast<int>(inliers1.size());
+      inliers1.push_back(sm1[i]);
+      inliers2.push_back(sm2[i]);
+      inliers3.push_back(sm3[i]);
+      inliers4.push_back(sm4[i]);
+      inlier_matches.push_back(DMatch(new_i, new_i, 0));
+    }
+  }
+
+  // Constuct proj points
+  //int num_points = 10;
+  int num_points = (int)inliers1.size();
+  Mat pp1, pp2, pm1, pm2;
+  pp1 = Mat::zeros(2, num_points, CV_64F);
+  pp2 = Mat::zeros(2, num_points, CV_64F);
+  for (int i = 0; i < num_points; i++)
+  {
+    pp1.at<double>(0,i) = inliers1[i].pt.x;
+    pp1.at<double>(1,i) = inliers1[i].pt.y;
+    pp2.at<double>(0,i) = inliers2[i].pt.x;
+    pp2.at<double>(1,i) = inliers2[i].pt.y;
+  }
+
+  Proj_.copyTo(pm1);
+  Proj_.copyTo(pm2);
+  pm2.at<double>(0,3) = -386.1448;
+  pm2.at<double>(1,3) = 0.0;
+
+  // Triangulate Points
+  Mat p4D;
+  triangulatePoints(pm1, pm2, pp1, pp2, p4D);
+
+  // (un) Normalize points
+  vector<Point3f> p3D;
+  for (int i = 0; i < num_points; i++)
+  {
+    Point3f p;
+    p.x = p4D.at<double>(0,i)/p4D.at<double>(3,i);
+    p.y = p4D.at<double>(1,i)/p4D.at<double>(3,i);
+    p.z = p4D.at<double>(2,i)/p4D.at<double>(3,i);
+    p3D.push_back(p);
+
+    // Display points
+    //cout << "Euclidean Point: " << endl << p.x << endl << p.y << endl << p.z << endl << endl;
+  }
+
+  // Display homo points
+  //cout << "Homo points: " << p4D(Range(0,4), Range(0,4));
+
+  // Display Projection Matrices
+  cout << "P0: " << pm1 << endl;
+  cout << "P1: " << pm2 << endl;
+
+  cout << "num_points: " << num_points << endl;
+
+  // Display R, t
+  //cout << "R: " << R << endl;
+  //cout << "t: " << t << endl;
+
+  // Show concated imgs
+  Mat imgs, imgs2, imgs_big;
+  //cv::hconcat(img1_points, img2_points, imgs);
+  drawMatches(img1, inliers1, img2, inliers2, inlier_matches, imgs, Scalar(255,0,0), Scalar(255,0,0));
+  drawMatches(img3, inliers3, img4, matched4, inlier_matches, imgs2, Scalar(255,0,0), Scalar(255,0,0));
+  vconcat(imgs, imgs2, imgs_big);
+  
+  char c(0);
+  while (c != 27)
+  {
+    imshow("Stereo", imgs_big);
+    c = (char)waitKey(2);
+  }
+}
 void VisualOdom::calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out)
 {
   // Detect features in img1
@@ -324,7 +488,7 @@ int main(int argc, char** argv)
 
   // Load images
   Mat img1, img2, img3, img_out;
-  char filename1[200], filename2[200], filename3[200];
+  char filename1[200], filename2[200], filename3[200], filename4[200];
 
   // Mat for trajectory
   Mat traj = Mat::zeros(600, 600, CV_8UC3);
@@ -388,47 +552,54 @@ int main(int argc, char** argv)
     // Get next 2 images
     sprintf(filename1, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i);
     sprintf(filename2, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i+1);
-    sprintf(filename3, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i+2);
+    sprintf(filename3, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_1/%06d.png", i);
+    sprintf(filename4, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_1/%06d.png", i+1);
 
+    Mat img4;
     img1 = imread(filename1, CV_LOAD_IMAGE_GRAYSCALE);
     img2 = imread(filename2, CV_LOAD_IMAGE_GRAYSCALE);
     img3 = imread(filename3, CV_LOAD_IMAGE_GRAYSCALE);
+    img4 = imread(filename4, CV_LOAD_IMAGE_GRAYSCALE);
 
-    // Get VO
-    vo.calcOdom(img1, img2, R_step, t_step, img_out);
+    // Triangulate points
+    vo.stereoPoints(img1, img2, img3, img4);
+
+    //// Get VO
+    ////vo.calcOdom(img1, img2, R_step, t_step, img_out);
     
-    double rel_scale = 0.0f;
-    rel_scale = vo.calcRelativeScale(img1, img2, img3);
+    //double rel_scale = 0.0f;
+    //rel_scale = vo.calcRelativeScale(img1, img2, img3);
 
-    // Only update if we have moved and if our resultant rotation and translation are valid
-    // Note translation valid if principle motion is in the z direction (along camera axis)
-    if ((scale > 0.1) && (!R_step.empty()) && (t_step.at<double>(2) < t_step.at<double>(0)) && (t_step.at<double>(2) < t_step.at<double>(1)))
-    {
-      // Move our estimate
-      t_tot += scale*(R_tot*t_step);
-      R_tot = R_step * R_tot;
-    }
-    else
-    {
-      cout << "Skipped Update!!!" << endl;
-    }
+    //// Only update if we have moved and if our resultant rotation and translation are valid
+    //// Note translation valid if principle motion is in the z direction (along camera axis)
+    //if ((scale > 0.1) && (!R_step.empty()) && (t_step.at<double>(2) < t_step.at<double>(0)) && (t_step.at<double>(2) < t_step.at<double>(1)))
+    //{
+      //// Move our estimate
+      //t_tot += scale*(R_tot*t_step);
+      //R_tot = R_step * R_tot;
+    //}
+    //else
+    //{
+      //cout << "Skipped Update!!!" << endl;
+    //}
 
-    // Plot trajectory
-    int x_traj = -int(t_tot.at<double>(0)) + 300;
-    int y_traj = -int(t_tot.at<double>(2)) + 100;
-    circle(traj, Point(x_traj, y_traj), 1, Scalar(255, 0, 0), 2);
+    //// Plot trajectory
+    //int x_traj = -int(t_tot.at<double>(0)) + 300;
+    //int y_traj = -int(t_tot.at<double>(2)) + 100;
+    //circle(traj, Point(x_traj, y_traj), 1, Scalar(255, 0, 0), 2);
 
-    // Determine runtime
-    t = clock() - t;
-    //std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
+    //// Determine runtime
+    //t = clock() - t;
+    ////std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
 
-    //imshow("Matches", res);
-    imshow("Camera", img_out);
-    imshow("Trajectory", traj);
-    char c(0);
-    c = (char)waitKey(2);
-    if ( c == 27 )
-      break;
+    ////imshow("Matches", res);
+    //imshow("Camera", img_out);
+    //imshow("Trajectory", traj);
+    //char c(0);
+    //c = (char)waitKey(2);
+    //if ( c == 27 )
+      //break;
+    //break;
   }
 
 
