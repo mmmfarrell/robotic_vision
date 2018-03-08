@@ -398,13 +398,14 @@ int main(int argc, char** argv)
     vo.calcOdom(img1, img2, R_step, t_step, img_out);
     
     double rel_scale = 0.0f;
-    rel_scale = vo.calcRelativeScale(img1, img2, img3);
+    //rel_scale = vo.calcRelativeScale(img1, img2, img3);
 
     // Only update if we have moved and if our resultant rotation and translation are valid
     // Note translation valid if principle motion is in the z direction (along camera axis)
     if ((scale > 0.1) && (!R_step.empty()) && (t_step.at<double>(2) < t_step.at<double>(0)) && (t_step.at<double>(2) < t_step.at<double>(1)))
     {
       // Move our estimate
+      scale = 1.0;
       t_tot += scale*(R_tot*t_step);
       R_tot = R_step * R_tot;
     }

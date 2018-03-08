@@ -42,9 +42,11 @@ VisualOdom::~VisualOdom()
 void VisualOdom::stereoPoints(Mat img1, Mat img2, Mat img3, Mat img4)
 {
   // Make new mats
-  Mat img1_points, img2_points;
+  Mat img1_points, img2_points, img3_points, img4_points;
   img1.copyTo(img1_points);
   img2.copyTo(img2_points);
+  img3.copyTo(img3_points);
+  img4.copyTo(img4_points);
 
   // Calc ORB points for both frames
   vector<KeyPoint> kp1, kp2, kp3, kp4;
@@ -113,87 +115,99 @@ void VisualOdom::stereoPoints(Mat img1, Mat img2, Mat img3, Mat img4)
   // Disp # of points left
   cout << "SM lengths: " << endl << sm1.size() << endl << sm2.size() << endl << sm3.size() << endl << sm4.size() << endl;
 
-  vector<Point2f> smp1, smp2;
+  vector<Point2f> smp1, smp2, smp3, smp4;
   KeyPoint::convert(sm1, smp1);
   KeyPoint::convert(sm2, smp2);
+  KeyPoint::convert(sm3, smp3);
+  KeyPoint::convert(sm4, smp4);
 
-  Mat inlier_mask, E, R, t;
-  vector<KeyPoint> inliers1, inliers2, inliers3, inliers4;
-  vector<DMatch> inlier_matches;
-
-  // Recover Pose
-  E = findEssentialMat(mpoints1, mpoints2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
-  recoverPose(E, mpoints1, mpoints2, R, t, focal_, pp_, inlier_mask);
-
-  // Draw matches on frames
-  for (unsigned i = 0; i < matched1.size(); i++)
+  for (int i = 0; i < smp1.size(); i ++)
   {
-    if (inlier_mask.at<uchar>(i))
-    {
-      int new_i = static_cast<int>(inliers1.size());
-      inliers1.push_back(sm1[i]);
-      inliers2.push_back(sm2[i]);
-      inliers3.push_back(sm3[i]);
-      inliers4.push_back(sm4[i]);
-      inlier_matches.push_back(DMatch(new_i, new_i, 0));
-    }
+    circle(img1_points, smp1[i], 2, Scalar(0, 255, 0), 3);
+    circle(img2_points, smp2[i], 2, Scalar(0, 255, 0), 3);
+    circle(img3_points, smp3[i], 2, Scalar(0, 255, 0), 3);
+    circle(img4_points, smp4[i], 2, Scalar(0, 255, 0), 3);
   }
+  //Mat inlier_mask, E, R, t;
+  //vector<KeyPoint> inliers1, inliers2, inliers3, inliers4;
+  //vector<DMatch> inlier_matches;
 
-  // Constuct proj points
-  //int num_points = 10;
-  int num_points = (int)inliers1.size();
-  Mat pp1, pp2, pm1, pm2;
-  pp1 = Mat::zeros(2, num_points, CV_64F);
-  pp2 = Mat::zeros(2, num_points, CV_64F);
-  for (int i = 0; i < num_points; i++)
-  {
-    pp1.at<double>(0,i) = inliers1[i].pt.x;
-    pp1.at<double>(1,i) = inliers1[i].pt.y;
-    pp2.at<double>(0,i) = inliers2[i].pt.x;
-    pp2.at<double>(1,i) = inliers2[i].pt.y;
-  }
+  //// Recover Pose
+  //E = findEssentialMat(smp1, smp2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
+  //recoverPose(E, smp1, smp1, R, t, focal_, pp_, inlier_mask);
 
-  Proj_.copyTo(pm1);
-  Proj_.copyTo(pm2);
-  pm2.at<double>(0,3) = -386.1448;
-  pm2.at<double>(1,3) = 0.0;
+  //// Draw matches on frames
+  //for (unsigned i = 0; i < matched1.size(); i++)
+  //{
+    //if (inlier_mask.at<uchar>(i))
+    //{
+      //int new_i = static_cast<int>(inliers1.size());
+      //inliers1.push_back(sm1[i]);
+      //inliers2.push_back(sm2[i]);
+      //inliers3.push_back(sm3[i]);
+      //inliers4.push_back(sm4[i]);
+      //inlier_matches.push_back(DMatch(new_i, new_i, 0));
+    //}
+  //}
 
-  // Triangulate Points
-  Mat p4D;
-  triangulatePoints(pm1, pm2, pp1, pp2, p4D);
+  //// Constuct proj points
+  ////int num_points = 10;
+  //int num_points = (int)inliers1.size();
+  //Mat pp1, pp2, pm1, pm2;
+  //pp1 = Mat::zeros(2, num_points, CV_64F);
+  //pp2 = Mat::zeros(2, num_points, CV_64F);
+  //for (int i = 0; i < num_points; i++)
+  //{
+    //pp1.at<double>(0,i) = inliers1[i].pt.x;
+    //pp1.at<double>(1,i) = inliers1[i].pt.y;
+    //pp2.at<double>(0,i) = inliers2[i].pt.x;
+    //pp2.at<double>(1,i) = inliers2[i].pt.y;
+  //}
 
-  // (un) Normalize points
-  vector<Point3f> p3D;
-  for (int i = 0; i < num_points; i++)
-  {
-    Point3f p;
-    p.x = p4D.at<double>(0,i)/p4D.at<double>(3,i);
-    p.y = p4D.at<double>(1,i)/p4D.at<double>(3,i);
-    p.z = p4D.at<double>(2,i)/p4D.at<double>(3,i);
-    p3D.push_back(p);
+  //Proj_.copyTo(pm1);
+  //Proj_.copyTo(pm2);
+  //pm2.at<double>(0,3) = -386.1448;
+  //pm2.at<double>(1,3) = 0.0;
 
-    // Display points
-    //cout << "Euclidean Point: " << endl << p.x << endl << p.y << endl << p.z << endl << endl;
-  }
+  //// Triangulate Points
+  //Mat p4D;
+  //triangulatePoints(pm1, pm2, pp1, pp2, p4D);
 
-  // Display homo points
-  //cout << "Homo points: " << p4D(Range(0,4), Range(0,4));
+  //// (un) Normalize points
+  //vector<Point3f> p3D;
+  //for (int i = 0; i < num_points; i++)
+  //{
+    //Point3f p;
+    //p.x = p4D.at<double>(0,i)/p4D.at<double>(3,i);
+    //p.y = p4D.at<double>(1,i)/p4D.at<double>(3,i);
+    //p.z = p4D.at<double>(2,i)/p4D.at<double>(3,i);
+    //p3D.push_back(p);
 
-  // Display Projection Matrices
-  cout << "P0: " << pm1 << endl;
-  cout << "P1: " << pm2 << endl;
+    //// Display points
+    ////cout << "Euclidean Point: " << endl << p.x << endl << p.y << endl << p.z << endl << endl;
+  //}
 
-  cout << "num_points: " << num_points << endl;
+  //// Display homo points
+  ////cout << "Homo points: " << p4D(Range(0,4), Range(0,4));
 
-  // Display R, t
-  //cout << "R: " << R << endl;
-  //cout << "t: " << t << endl;
+  //// Display Projection Matrices
+  //cout << "P0: " << pm1 << endl;
+  //cout << "P1: " << pm2 << endl;
+
+  //cout << "num_points: " << num_points << endl;
+
+  //// Display R, t
+  ////cout << "R: " << R << endl;
+  ////cout << "t: " << t << endl;
 
   // Show concated imgs
   Mat imgs, imgs2, imgs_big;
   //cv::hconcat(img1_points, img2_points, imgs);
-  drawMatches(img1, inliers1, img2, inliers2, inlier_matches, imgs, Scalar(255,0,0), Scalar(255,0,0));
-  drawMatches(img3, inliers3, img4, matched4, inlier_matches, imgs2, Scalar(255,0,0), Scalar(255,0,0));
+  //drawMatches(img1, inliers1, img2, inliers2, inlier_matches, imgs, Scalar(255,0,0), Scalar(255,0,0));
+  //drawMatches(img3, inliers3, img4, matched4, inlier_matches, imgs2, Scalar(255,0,0), Scalar(255,0,0));
+  //vconcat(imgs, imgs2, imgs_big);
+  hconcat(img1_points, img2_points, imgs);
+  hconcat(img3_points, img4_points, imgs2);
   vconcat(imgs, imgs2, imgs_big);
   
   char c(0);
