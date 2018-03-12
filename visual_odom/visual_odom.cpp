@@ -218,6 +218,10 @@ int main(int argc, char** argv)
     t = clock() - t;
     //std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
 
+    // Legend for traj
+    putText(traj, "Truth", Point(30, 30), FONT_HERSHEY_DUPLEX, 1.0, Scalar(0, 0, 255));
+    putText(traj, "VO", Point(30, 60), FONT_HERSHEY_DUPLEX, 1.0, Scalar(255, 0, 0));
+
     //imshow("Matches", res);
     imshow("Camera", img_out);
     imshow("Trajectory", traj);
