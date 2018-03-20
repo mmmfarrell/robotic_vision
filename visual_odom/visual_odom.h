@@ -16,6 +16,7 @@ class VisualOdom
     ~VisualOdom();
 
     void calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out);
+    void findPoints(Mat img1, Mat Rt1, Mat img2, Mat Rt2, vector<Point2f>& points);
 
     // Rotation and translation results
     Mat R_;
@@ -36,6 +37,7 @@ class VisualOdom
     // Camera intrinsics
     double focal_;
     cv::Point2d pp_;
+    Mat K_;
 
 
 }; // end class
