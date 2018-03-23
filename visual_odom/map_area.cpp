@@ -134,14 +134,25 @@ int main(int argc, char** argv)
         circle(traj, Point(rp3.at<double>(0) + 300, rp3.at<double>(2) + 100), 1, Scalar(0, 255, 0), 1);
         circle(traj, Point(x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
 
+        // Compute indeces for cell on map
         int idx, idz;
         idx = (int) rp3.at<double>(0) + 300;
         idz = (int) rp3.at<double>(2) + 100;
-        //cout << "Mat at id: " << traj.at<double>(300, 100) << endl;
-        //traj2.at<double>(idx, idz) = 1.0f;
-        circle(traj2, Point(rp3.at<double>(0) + 300, rp3.at<double>(2) + 100), 1, Scalar(255, 255, 255), 1);
-        //cout << "integer: " << (int)-rp3.at<double>(0) << endl;
-        //cout << "raw: " << rp3.at<double>(0) << endl;
+        //cout << "indices: " << idx << ", " << idz << endl;
+
+        // Set map value at index to more white
+        if (traj2.at<uchar>(idz, idx) < 250)
+        {
+          traj2.at<uchar>(idz, idx) += 50;
+        }
+        else
+        {
+          traj2.at<uchar>(idz, idx) = 255;
+        }
+
+        // Paint a white circle at 3d point
+        //circle(traj2, Point(rp3.at<double>(0) + 300, rp3.at<double>(2) + 100), 1, Scalar(255, 255, 255), 1);
+
 
         //circle(traj, Point(-points[i].x + 300, points[i].z + 100), 1, Scalar(0, 255, 0), 1);
         //cout << "Pixels px: " << features1[i].x << ", py: " << features1[i].y << endl;
@@ -174,6 +185,28 @@ int main(int argc, char** argv)
     // Determine runtime
     t = clock() - t;
     //std::printf("I can run at @ %f HZ.\n", (CLOCKS_PER_SEC/(float)t));
+
+    // Set Everything more black
+    bool forget = false;
+    if (forget)
+    {
+      for (int j = 0; j < 600; j++)
+      {
+        for (int k = 0; k < 600; k++)
+        {
+          if (traj2.at<uchar>(j, k) > 5)
+          {
+            traj2.at<uchar>(j, k) = traj2.at<uchar>(j, k) - 1;
+          }
+          else
+          {
+            traj2.at<uchar>(j,k) = 0;
+          }
+
+        }
+
+      }
+    }
 
     // Legend for traj
     putText(traj, "Truth", Point(30, 30), FONT_HERSHEY_DUPLEX, 1.0, Scalar(0, 0, 255));
