@@ -18,6 +18,7 @@ int main(int argc, char** argv)
 
   // Mat for trajectory
   Mat traj = Mat::zeros(600, 600, CV_8UC3);
+  Mat traj2 = Mat::zeros(600, 600, CV_8UC1);
 
   // Read file for true position
   ifstream myfile("/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/poses/00.txt");
@@ -73,14 +74,18 @@ int main(int argc, char** argv)
     scale = sqrt(pow(x_truth - x_prev, 2) + pow(y_truth - y_prev, 2) + pow(z_truth - z_prev, 2));
 
     // Plot truth point as red
-    circle(traj, Point(-x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
+    //circle(traj, Point(-x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
 
     // Get next 2 images
     sprintf(filename1, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i);
-    sprintf(filename2, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_0/%06d.png", i+1);
+    sprintf(filename2, "/home/michael/gradschool/Winter18/robotic_vision/datasets/dataset/sequences/00/image_1/%06d.png", i);
 
     img1 = imread(filename1, CV_LOAD_IMAGE_GRAYSCALE);
     img2 = imread(filename2, CV_LOAD_IMAGE_GRAYSCALE);
+
+    Mat img1_p, img2_p;
+    cv::cvtColor(img1, img1_p, COLOR_GRAY2BGR);
+    cv::cvtColor(img2, img2_p, COLOR_GRAY2BGR);
 
     // Make Rt matrix
     Rt_curr = Mat::zeros(3, 4, CV_64F);
@@ -99,13 +104,49 @@ int main(int argc, char** argv)
     // Skip localization if first frame
     if (!Rt_prev.empty())
     {
-      vector<Point2f> points;
-      vo.findPoints(img1, Rt_prev, img2, Rt_curr, points);  
-      cout << endl;
+      vector<Point3f> points;
+      vector<Point2f> features1, features2;
+      vo.findPoints(img1, img2, points, features1, features2);  
+      //cout << endl;
+
+      traj = Mat::zeros(600, 600, CV_8UC3);
+      for (int i = 0; i < features1.size(); i ++)
+      {
+        //cout << "Pixels px: " << features1[i].x << ", py: " << features1[i].y << endl;
+        circle(img1_p, features1[i], 5, Scalar(255, 0, 0), 3);
+        circle(img2_p, features2[i], 5, Scalar(255, 0, 0), 3);
+      }
 
       for (int i = 0; i < points.size(); i ++)
       {
-        circle(traj, Point(-points[i].x + 300, points[i].y + 100), 1, Scalar(0, 255, 0), 1);
+        Mat p3 = Mat::zeros(3, 1, CV_64F);
+        p3.at<double>(0) = points[i].x;
+        p3.at<double>(1) = points[i].y;
+        p3.at<double>(2) = points[i].z;
+        //cout << "p3: " << p3 << endl;
+        Mat rp3 = R_truth * p3;
+        //cout << "rp3: " << rp3 << endl;
+        rp3.at<double>(0) = -(-rp3.at<double>(0) + x_truth);
+        rp3.at<double>(1) = -rp3.at<double>(1) + y_truth;
+        rp3.at<double>(2) = -rp3.at<double>(2) + z_truth;
+
+        // Draw 3D points and car for current frame
+        circle(traj, Point(rp3.at<double>(0) + 300, rp3.at<double>(2) + 100), 1, Scalar(0, 255, 0), 1);
+        circle(traj, Point(x_truth + 300, z_truth + 100), 1, Scalar(0, 0, 255), 2);
+
+        int idx, idz;
+        idx = (int) rp3.at<double>(0) + 300;
+        idz = (int) rp3.at<double>(2) + 100;
+        //cout << "Mat at id: " << traj.at<double>(300, 100) << endl;
+        //traj2.at<double>(idx, idz) = 1.0f;
+        circle(traj2, Point(rp3.at<double>(0) + 300, rp3.at<double>(2) + 100), 1, Scalar(255, 255, 255), 1);
+        //cout << "integer: " << (int)-rp3.at<double>(0) << endl;
+        //cout << "raw: " << rp3.at<double>(0) << endl;
+
+        //circle(traj, Point(-points[i].x + 300, points[i].z + 100), 1, Scalar(0, 255, 0), 1);
+        //cout << "Pixels px: " << features1[i].x << ", py: " << features1[i].y << endl;
+        //circle(img1_p, features1[i], 5, Scalar(255, 0, 0), 3);
+        //circle(img2_p, features2[i], 5, Scalar(255, 0, 0), 3);
       }
     }
 
@@ -139,8 +180,10 @@ int main(int argc, char** argv)
     //putText(traj, "VO", Point(30, 60), FONT_HERSHEY_DUPLEX, 1.0, Scalar(255, 0, 0));
 
     //imshow("Matches", res);
-    imshow("Camera", img2);
+    imshow("Right Camera", img2_p);
+    imshow("Left Camera", img1_p);
     imshow("Trajectory", traj);
+    imshow("Map", traj2);
     char c(0);
     c = (char)waitKey(2);
     if ( c == 27 )

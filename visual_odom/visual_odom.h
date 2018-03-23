@@ -16,7 +16,7 @@ class VisualOdom
     ~VisualOdom();
 
     void calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out);
-    void findPoints(Mat img1, Mat Rt1, Mat img2, Mat Rt2, vector<Point2f>& points);
+    void findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<Point2f>& features1, vector<Point2f>& features2);
 
     // Rotation and translation results
     Mat R_;
@@ -33,11 +33,12 @@ class VisualOdom
 
     void detectFeatures(Mat, vector<Point2f>&);
     void trackFeatures(Mat, Mat, vector<Point2f>&, vector<Point2f>&);
+    void matchFeatures(Mat, Mat, vector<Point2f>&, vector<Point2f>&);
 
     // Camera intrinsics
     double focal_;
     cv::Point2d pp_;
-    Mat K_;
+    Mat K_, P0_, P1_, dist_coeff_;
 
 
 }; // end class

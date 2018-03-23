@@ -31,6 +31,28 @@ VisualOdom::VisualOdom()
   K_.at<double>(1, 2) = pp_.y;
   K_.at<double>(2, 2) = 1.0f;
 
+  // Camera Projection matrices
+  P0_ = Mat::zeros(3, 4, CV_64F);
+  P0_.at<double>(0, 0) = 1.0f;
+  P0_.at<double>(1, 1) = 1.0f;
+  //P0_.at<double>(0, 2) = pp_.x;
+  //P0_.at<double>(1, 2) = pp_.y;
+  P0_.at<double>(2, 2) = 1.0f;
+
+  P0_.copyTo(P1_);
+  P1_.at<double>(0, 3) = 0.537;
+
+  //P0_.at<double>(0, 0) = focal_;
+  //P0_.at<double>(1, 1) = focal_;
+  //P0_.at<double>(0, 2) = pp_.x;
+  //P0_.at<double>(1, 2) = pp_.y;
+  //P0_.at<double>(2, 2) = 1.0f;
+
+  //P0_.copyTo(P1_);
+  //P1_.at<double>(0, 3) = -386.1448f;
+
+  dist_coeff_ = Mat::zeros(1, 5, CV_64F);
+
   // Init starting pose of camera
   R_ = Mat::eye(3, 3, CV_64F);
   t_ = Mat::zeros(3, 1, CV_64F);
@@ -39,51 +61,90 @@ VisualOdom::VisualOdom()
 VisualOdom::~VisualOdom()
 {}
 
-void VisualOdom::findPoints(Mat img1, Mat Rt1, Mat img2, Mat Rt2, vector<Point2f>& points)
+void VisualOdom::findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<Point2f>& features1, vector<Point2f>& features2)
 {
   // Detect features in img1
-  vector<Point2f> features1, features2;
-  VisualOdom::detectFeatures(img1, features1);
-  VisualOdom::trackFeatures(img1, img2, features1, features2);
-
-  // Undistort pixels
-  Mat distort_coeff = (Mat1d(1,4) << 0.0, 0.0, 0.0, 0.0);
-  vector<Point2f> undistort1, undistort2;
-  undistortPoints(features1, undistort1, K_, distort_coeff);
-  undistortPoints(features2, undistort2, K_, distort_coeff);
-
-  cout << "Original point x: " << features1[0].x << ", y: " << features1[0].y << endl;
-  cout << "Undistort point x: " << undistort1[0].x << ", y: " << undistort1[0].y << endl;
-
-  // Create Projection matrices
-  Mat projM1, projM2;
-  projM1 = Rt1;
-  projM2 = Rt2;
-  //cout << "K matrix: " << K_ << endl;
-  cout << "projM1: " << projM1 << endl;
-  cout << "projM2: " << projM2 << endl;
+  //vector<Point2f> features1, features2;
+  VisualOdom::matchFeatures(imgL, imgR, features1, features2);
 
   // Triangulate Points
-  Mat points4D;
-  triangulatePoints(projM1, projM2, undistort1, undistort2, points4D);
+  //cout << "P0: " << P0_ << endl;
+  //cout << "P1: " << P1_ << endl;
+  vector<Point2f> undistort1, undistort2;
+  cv::undistortPoints(features1, undistort1, K_, Mat());
+  cv::undistortPoints(features2, undistort2, K_, Mat());
+  Mat points4D(4, features1.size(), CV_32FC1);
+  triangulatePoints(P0_, P1_, undistort1, undistort2, points4D);
 
-  // Make 2D points vector from result
+  // Recover 3d points from homogeneous
+  Mat pt3D;
+  cv::convertPointsFromHomogeneous(Mat(points4D.t()).reshape(4,1), pt3D);
+  //cout << "3D points: " << pt3D << endl;
+
+  // Make 2d points vector
   for (int i = 0; i < features1.size(); i++)
   {
-    // Extract point
-    Point2f point;
-    point.x = (float)points4D.at<double>(0, i)/points4D.at<double>(3, i);
-    point.y = (float)points4D.at<double>(2, i)/points4D.at<double>(3, i); // z component in camera axes
+    //Extract Point
+    Point3f point;
+    point.x = pt3D.at<float>(i, 0);
+    point.y = pt3D.at<float>(i, 1);
+    point.z = pt3D.at<float>(i, 2);
 
-    // Add to output vector
-    points.push_back(point);
-
-    // TODO Remove
-    if (i == 0)
+    if (point.z > 0)
     {
-      cout << "Point x: " << point.x << ", z: " << point.y << endl;
+      continue;
+    }
+    else if (point.z < -100.0f)
+    {
+      continue;
+    }
+    else if (features1[i].y > 100)
+    {
+      continue;
+    }
+    else
+    {
+      points.push_back(point);
     }
   }
+}
+
+void VisualOdom::matchFeatures(Mat imgL, Mat imgR, vector<Point2f>& features1, vector<Point2f>& features2)
+{
+  // Calc ORB points for both frames
+  vector<KeyPoint> kp1, kp2;
+  Mat desc1, desc2;
+
+  orb_->detectAndCompute(imgL, noArray(), kp1, desc1);
+  orb_->detectAndCompute(imgR, noArray(), kp2, desc2);
+
+  // Match ORB features
+  vector< vector<DMatch> > matches;
+  matcher_->knnMatch(desc1, desc2, matches, 2);
+
+  // Put matched features into vectors
+  vector<KeyPoint> matched1, matched2;
+
+  for(unsigned i = 0; i < matches.size(); i++)
+  {
+    if (matches[i][0].distance < nn_match_ratio_ * matches[i][1].distance)
+    {
+      matched1.push_back(kp1[matches[i][0].queryIdx]);
+      matched2.push_back(kp2[matches[i][0].trainIdx]);
+    }
+  }
+
+  // Convert matched features to Point2f
+  cv::KeyPoint::convert(matched1, features1);
+  cv::KeyPoint::convert(matched2, features2);
+
+  //// Compute Essential Matrix and recover pose
+  //Mat E, inlier_mask, R, t;
+  //E = findEssentialMat(features1, features2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
+  //recoverPose(E, features1, features2, R, t, focal_, pp_, inlier_mask);
+
+  //cout << "R: " << R << endl;
+  //cout << "t: " << t << endl;
 }
 
 void VisualOdom::calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out)
