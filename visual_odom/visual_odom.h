@@ -18,10 +18,6 @@ class VisualOdom
     void calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out);
     void findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<Point2f>& features1, vector<Point2f>& features2);
 
-    // Rotation and translation results
-    Mat R_;
-    Mat t_;
-
   private:
     // Thresholds
     double ransac_thresh_;
@@ -39,7 +35,6 @@ class VisualOdom
     double focal_;
     cv::Point2d pp_;
     Mat K_, P0_, P1_, dist_coeff_;
-
 
 }; // end class
 

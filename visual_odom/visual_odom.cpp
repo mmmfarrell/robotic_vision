@@ -35,27 +35,14 @@ VisualOdom::VisualOdom()
   P0_ = Mat::zeros(3, 4, CV_64F);
   P0_.at<double>(0, 0) = 1.0f;
   P0_.at<double>(1, 1) = 1.0f;
-  //P0_.at<double>(0, 2) = pp_.x;
-  //P0_.at<double>(1, 2) = pp_.y;
   P0_.at<double>(2, 2) = 1.0f;
 
   P0_.copyTo(P1_);
   P1_.at<double>(0, 3) = 0.537;
 
-  //P0_.at<double>(0, 0) = focal_;
-  //P0_.at<double>(1, 1) = focal_;
-  //P0_.at<double>(0, 2) = pp_.x;
-  //P0_.at<double>(1, 2) = pp_.y;
-  //P0_.at<double>(2, 2) = 1.0f;
-
-  //P0_.copyTo(P1_);
-  //P1_.at<double>(0, 3) = -386.1448f;
-
+  // No distortion
   dist_coeff_ = Mat::zeros(1, 5, CV_64F);
 
-  // Init starting pose of camera
-  R_ = Mat::eye(3, 3, CV_64F);
-  t_ = Mat::zeros(3, 1, CV_64F);
 }
 
 VisualOdom::~VisualOdom()
@@ -64,12 +51,9 @@ VisualOdom::~VisualOdom()
 void VisualOdom::findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<Point2f>& features1, vector<Point2f>& features2)
 {
   // Detect features in img1
-  //vector<Point2f> features1, features2;
   VisualOdom::matchFeatures(imgL, imgR, features1, features2);
 
   // Triangulate Points
-  //cout << "P0: " << P0_ << endl;
-  //cout << "P1: " << P1_ << endl;
   vector<Point2f> undistort1, undistort2;
   cv::undistortPoints(features1, undistort1, K_, Mat());
   cv::undistortPoints(features2, undistort2, K_, Mat());
@@ -79,7 +63,6 @@ void VisualOdom::findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<
   // Recover 3d points from homogeneous
   Mat pt3D;
   cv::convertPointsFromHomogeneous(Mat(points4D.t()).reshape(4,1), pt3D);
-  //cout << "3D points: " << pt3D << endl;
 
   // Make 2d points vector
   for (int i = 0; i < features1.size(); i++)
@@ -90,15 +73,16 @@ void VisualOdom::findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<
     point.y = pt3D.at<float>(i, 1);
     point.z = pt3D.at<float>(i, 2);
 
+    // Threshold for points to neglect (trying to neglect road points)
     if (point.z > 0)
     {
       continue;
     }
-    else if (point.z < -50.0f)
+    else if (point.z < -50.0f) // Reject if point too far away
     {
       continue;
     }
-    else if (features1[i].y > 100)
+    else if (features1[i].y > 100) // Reject if point on bottom part of image
     {
       continue;
     }
@@ -137,14 +121,6 @@ void VisualOdom::matchFeatures(Mat imgL, Mat imgR, vector<Point2f>& features1, v
   // Convert matched features to Point2f
   cv::KeyPoint::convert(matched1, features1);
   cv::KeyPoint::convert(matched2, features2);
-
-  //// Compute Essential Matrix and recover pose
-  //Mat E, inlier_mask, R, t;
-  //E = findEssentialMat(features1, features2, focal_, pp_, RANSAC, 0.999, 1.0, inlier_mask);
-  //recoverPose(E, features1, features2, R, t, focal_, pp_, inlier_mask);
-
-  //cout << "R: " << R << endl;
-  //cout << "t: " << t << endl;
 }
 
 void VisualOdom::calcOdom(Mat img1, Mat img2, Mat& R, Mat& t, Mat& out)
