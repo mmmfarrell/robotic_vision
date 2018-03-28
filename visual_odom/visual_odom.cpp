@@ -94,7 +94,7 @@ void VisualOdom::findPoints(Mat imgL, Mat imgR, vector<Point3f>& points, vector<
     {
       continue;
     }
-    else if (point.z < -100.0f)
+    else if (point.z < -50.0f)
     {
       continue;
     }
